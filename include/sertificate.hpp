@@ -103,8 +103,6 @@ namespace detail {
     }
 }
 
-// Load the root certificates into an ssl::context
-
 inline
 void
 load_root_certificates(ssl::context &ctx, boost::system::error_code &ec) {

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <boost/thread/thread.hpp>
 #include <boost/bind/bind.hpp>
+#include <boost/thread/mutex.hpp>
 #include <utility>
 #include <gumbo.h>
 #include <queue>
@@ -63,7 +64,7 @@ public:
             hrefFabric.create_thread(boost::bind(&Crawler::
             hrefWorker, this, i));
         for (uint8_t i = 0; i < parserThreadsCount; ++i)
-            imgFabric.create_thread(boost::bind(&Crawler::imgWorker, this, i));
+            imgFabric.create_thread(boost::bind(&Crawler::imgWorker, this));
         bool isHrefFabricStopped = false, isImgFabricStopped = false;
 
         while (true) {
@@ -125,7 +126,7 @@ public:
         }
     }
 
-    void imgWorker(uint16_t id) {
+    void imgWorker() {
         while (true) {
             try {
                 imgMuter.lock();
@@ -296,14 +297,11 @@ public:
         std::string host;
         int64_t skipHTTP = 0;
         int64_t skipHTTPS = 0;
-        int64_t skipWWW = 0;
         int64_t pos = 0;
         skipHTTPS = url.find("https");
         skipHTTP = url.find("http");
-//        skipWWW=url.find("www.");
         if (skipHTTPS != -1)pos += skipHTTPS + 3 + 5;
         else if (skipHTTP != -1)pos += skipHTTP + 3 + 4;
-//        if(skipWWW!=-1) pos+=4;
         int64_t endOfHost = url.find('/', pos);
         if (endOfHost == -1)endOfHost = url.size();
         for (int64_t i = pos; i < endOfHost; ++i)
@@ -343,14 +341,8 @@ public:
 private:
     std::queue <HrefData> hrefQueue;
     std::queue <std::string> imgQueue;
-    std::mutex hrefMuter;
-    std::mutex imgMuter;
+    boost::mutex hrefMuter;
+    boost::mutex imgMuter;
 };
-
-int main(int argc, char **argv) {
-    Crawler s;
-    s.handler();
-    return 0;
-}
 
 #endif // INCLUDE_HEADER_HPP_

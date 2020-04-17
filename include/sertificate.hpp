@@ -101,7 +101,7 @@ namespace detail {
             return;
         }
     }
-}
+} // namespace detail
 
 inline
 void

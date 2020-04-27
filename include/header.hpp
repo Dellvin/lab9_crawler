@@ -6,6 +6,7 @@
 #include <iostream>
 #include <boost/thread/thread.hpp>
 #include <boost/bind/bind.hpp>
+#include <boost/thread/mutex.hpp>
 #include <utility>
 #include <gumbo.h>
 #include <queue>
@@ -260,7 +261,6 @@ public:
         std::string host;
         int64_t skipHTTP = 0;
         int64_t skipHTTPS = 0;
-        int64_t skipWWW = 0;
         int64_t pos = 0;
         skipHTTPS = url.find("https");
         skipHTTP = url.find("http");
@@ -303,8 +303,8 @@ public:
 private:
     std::queue<HrefData> hrefQueue;
     std::queue<std::string> imgQueue;
-    std::mutex hrefMuter;
-    std::mutex imgMuter;
+    boost::mutex hrefMuter;
+    boost::mutex imgMuter;
 };
 
 #endif // INCLUDE_HEADER_HPP_

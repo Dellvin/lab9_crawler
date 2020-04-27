@@ -6,7 +6,6 @@
 #include <iostream>
 #include <boost/thread/thread.hpp>
 #include <boost/bind/bind.hpp>
-#include <boost/thread/mutex.hpp>
 #include <utility>
 #include <gumbo.h>
 #include <queue>
@@ -40,7 +39,7 @@ struct HrefData {
 class Crawler {
 public:
     explicit Crawler(std::string beginPage = "https://yandex.ru",
-            uint64_t maxDepth = 10,
+                     uint64_t maxDepth = 1,
                      uint8_t producerThreadsCount = 10,
                      uint8_t consumerThreadsCount = 10,
                      std::string output = "allLinks.txt") :
@@ -50,52 +49,20 @@ public:
             outputPath(std::move(output)) {
     }
 
-    ~Crawler() {
-        imgMuter.unlock();
-        hrefMuter.unlock();
-    }
-
     void handler() {
         HrefData fatherOfAll{startingPoint, 0};
         hrefQueue.push(fatherOfAll);
+        imgQueue.push(startingPoint);
         boost::thread_group hrefFabric;
         boost::thread_group imgFabric;
         for (uint8_t i = 0; i < networkThreadsCount; ++i)
             hrefFabric.create_thread(boost::bind(&Crawler::
             hrefWorker, this, i));
+
+        hrefFabric.join_all();
         for (uint8_t i = 0; i < parserThreadsCount; ++i)
             imgFabric.create_thread(boost::bind(&Crawler::imgWorker, this));
-        bool isHrefFabricStopped = false, isImgFabricStopped = false;
-
-        while (true) {
-            sleep(5);
-            hrefMuter.lock();
-            if (!isHrefFabricStopped) {
-                if (hrefQueue.empty()) {
-                    hrefFabric.interrupt_all();
-                    isHrefFabricStopped = true;
-
-                    hrefMuter.unlock();
-                    continue;
-                }
-            }
-            if (!hrefQueue.empty())isHrefFabricStopped = false;
-
-            hrefMuter.unlock();
-
-            imgMuter.lock();
-            if (!isImgFabricStopped) {
-                if (imgQueue.empty()) {
-                    imgFabric.interrupt_all();
-                    isImgFabricStopped = true;
-                }
-            }
-            if (!imgQueue.empty())isImgFabricStopped = false;
-
-            imgMuter.unlock();
-            if (isHrefFabricStopped && isImgFabricStopped)
-                break;
-        }
+        imgFabric.join_all();
     }
 
     void hrefWorker(uint16_t id) {
@@ -114,13 +81,15 @@ public:
                     getLinks(fromStrToNode(page)->root, href);
                     hrefMuter.lock();
                     std::cout << id << ": " << href.link <<
-                    " - " << href.rang << std::endl;
+                              " - " << href.rang << std::endl;
                     hrefMuter.unlock();
+                } else {
+                    hrefMuter.unlock();
+                    break;
                 }
-                hrefMuter.unlock();
             }
             catch (...) {
-//                hrefMuter.unlock();
+                hrefMuter.unlock();
                 continue;
             }
         }
@@ -133,17 +102,18 @@ public:
                 if (!imgQueue.empty()) {
                     std::string img = imgQueue.front();
                     imgQueue.pop();
-
                     imgMuter.unlock();
                     if (img.empty()) continue;
                     std::string page = getPage(img);
                     if (page.empty())continue;
                     getImg(fromStrToNode(page)->root);
+                } else {
+                    imgMuter.unlock();
+                    break;
                 }
-                imgMuter.unlock();
             }
             catch (...) {
-//                imgMuter.unlock();
+                imgMuter.unlock();
                 continue;
             }
         }
@@ -162,7 +132,8 @@ public:
             GumboAttribute *href;
             if (node->v.element.tag == GUMBO_TAG_A &&
                 (href = gumbo_get_attribute(&node->v.element.attributes,
-                        "href"))) {
+                                            "href"))) {
+
                 std::string s = href->value;
                 if (s != "#" && s != parent.link && s.find("http") == 0) {
                     if (parent.rang < depth) {
@@ -192,10 +163,10 @@ public:
                 return;
             }
             GumboAttribute *img;
-            if ((node->v.element.tag == GUMBO_TAG_IMG || node->v.element.tag
-            == GUMBO_TAG_IMAGE) &&
+            if ((node->v.element.tag == GUMBO_TAG_IMG ||
+                 node->v.element.tag == GUMBO_TAG_IMAGE) &&
                 (img = gumbo_get_attribute(&node->v.element.attributes,
-                        "src"))) {
+                                           "src"))) {
                 std::string s = img->value;
                 if (s.find("http") == 0) {
                     imgMuter.lock();
@@ -218,11 +189,8 @@ public:
 
     static std::string getPage(std::string url) {
         std::string page;
-        if (getPort(url) == "80") {
-            page = getHttp(url);
-        } else {
-            page = getHttps(url);
-        }
+        if (getPort(url) == "80") page = getHttp(url);
+        else page = getHttps(url);
         return page;
     }
 
@@ -231,25 +199,23 @@ public:
             std::string const host = getHost(url);
             std::string const port = "80"; // https - 443, http - 80
             std::string const target = getTarget(url);
-            int version = 10; // или 10 для http 1.0
-
+            int version = 10;
             boost::asio::io_context ioc;
             tcp::resolver resolver{ioc};
             boost::beast::tcp_stream stream{ioc};
             auto const results = resolver.resolve(host, port);
             stream.connect(results);
-            http::request <http::string_body> req{http::verb::get,
-                                                  target, version};
+            http::request<http::string_body> req{http::verb::get, target,
+                                                 version};
             req.set(http::field::host, host);
             req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
             http::write(stream, req);
             boost::beast::flat_buffer buffer;
-            http::response <http::dynamic_body> res;
+            http::response<http::dynamic_body> res;
             http::read(stream, buffer, res);
             return boost::beast::buffers_to_string(res.body().data());
         }
         catch (...) {
-            std::cout << "error for: " << url << std::endl;
             return "";
         }
     }
@@ -264,31 +230,28 @@ public:
             ssl::context ctx{ssl::context::sslv23_client};
             load_root_certificates(ctx);
             tcp::resolver resolver{ioc};
-            ssl::stream <tcp::socket> stream{ioc, ctx};
+            ssl::stream<tcp::socket> stream{ioc, ctx};
             if (!SSL_set_tlsext_host_name(stream.native_handle(),
-                    host.c_str())) {
+                                          host.c_str())) {
                 boost::system::error_code ec{static_cast<int>(
-                        ::ERR_get_error()),
-                               boost::asio::error::get_ssl_category()};
+                                                     ::ERR_get_error()),
+                                             boost::asio::error::get_ssl_category()};
                 throw boost::system::system_error{ec};
             }
             auto const results = resolver.resolve(host, port);
             boost::asio::connect(stream.next_layer(), results.begin(),
-                    results.end());
-            // muter.lock();
+                                 results.end());
             stream.handshake(ssl::stream_base::client);
-            //  muter.unlock();
-            http::request <http::string_body> req{http::verb::get, target,
-                                                  version};
+            http::request<http::string_body> req{http::verb::get,
+                                                 target, version};
             req.set(http::field::host, host);
             req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
             http::write(stream, req);
             boost::beast::flat_buffer buffer;
-            http::response <http::dynamic_body> res;
+            http::response<http::dynamic_body> res;
             http::read(stream, buffer, res);
             return boost::beast::buffers_to_string(res.body().data());
         } catch (...) {
-            std::cout << "error for: " << url << std::endl;
             return "";
         }
     }
@@ -297,6 +260,7 @@ public:
         std::string host;
         int64_t skipHTTP = 0;
         int64_t skipHTTPS = 0;
+        int64_t skipWWW = 0;
         int64_t pos = 0;
         skipHTTPS = url.find("https");
         skipHTTP = url.find("http");
@@ -316,7 +280,6 @@ public:
         if (www != -1) skipWWW = www + 2;
         int64_t endOfHost = url.find('.', skipWWW);
         int64_t targetStartPos = url.find('/', endOfHost);
-
         for (uint64_t i = targetStartPos; i < url.size(); ++i) {
             target.push_back(url[i]);
         }
@@ -337,12 +300,11 @@ public:
     uint8_t networkThreadsCount;
     uint8_t parserThreadsCount;
     std::string outputPath;
-
 private:
-    std::queue <HrefData> hrefQueue;
-    std::queue <std::string> imgQueue;
-    boost::mutex hrefMuter;
-    boost::mutex imgMuter;
+    std::queue<HrefData> hrefQueue;
+    std::queue<std::string> imgQueue;
+    std::mutex hrefMuter;
+    std::mutex imgMuter;
 };
 
 #endif // INCLUDE_HEADER_HPP_

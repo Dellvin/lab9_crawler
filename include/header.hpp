@@ -133,7 +133,6 @@ public:
             if (node->v.element.tag == GUMBO_TAG_A &&
                 (href = gumbo_get_attribute(&node->v.element.attributes,
                                             "href"))) {
-
                 std::string s = href->value;
                 if (s != "#" && s != parent.link && s.find("http") == 0) {
                     if (parent.rang < depth) {
@@ -189,8 +188,9 @@ public:
 
     static std::string getPage(std::string url) {
         std::string page;
-        if (getPort(url) == "80") page = getHttp(url);
-        else page = getHttps(url);
+        if (getPort(url) == "80") {
+            page = getHttp(url);
+        } else { page = getHttps(url); }
         return page;
     }
 
@@ -234,8 +234,8 @@ public:
             if (!SSL_set_tlsext_host_name(stream.native_handle(),
                                           host.c_str())) {
                 boost::system::error_code ec{static_cast<int>(
-                                                     ::ERR_get_error()),
-                                             boost::asio::error::get_ssl_category()};
+                              ::ERR_get_error()),
+                               boost::asio::error::get_ssl_category()};
                 throw boost::system::system_error{ec};
             }
             auto const results = resolver.resolve(host, port);
@@ -293,13 +293,13 @@ public:
         return "80";
     }
 
-
 public:
     std::string startingPoint;
     uint64_t depth;
     uint8_t networkThreadsCount;
     uint8_t parserThreadsCount;
     std::string outputPath;
+
 private:
     std::queue<HrefData> hrefQueue;
     std::queue<std::string> imgQueue;
